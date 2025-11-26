@@ -159,7 +159,7 @@ void Game::resetGameState() {
     if (livesText_) livesText_->setString("Lives: 3");
 
     float shieldsY = player_->bounds().position.y - 120.f;
-    sf::Vector2f desiredSize{ 140.f, 70.f };
+    sf::Vector2f desiredSize{ 120.f, 60.f };
     float padding = 48.f;
     float available = static_cast<float>(VIRTUAL_WIDTH_) - 2.f * padding;
     float totalW = 4.f * desiredSize.x;
