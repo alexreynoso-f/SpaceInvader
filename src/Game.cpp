@@ -194,7 +194,7 @@ bool Game::trySpawnFromColumn(int col) {
             sf::Vector2f shotPos{ eb.position.x + eb.size.x / 2.f, eb.position.y + eb.size.y + 4.f };
             for (auto &b : enemyBullets_) {
                 if (!b.isActive()) {
-                    b.spawn(shotPos, 400.f);
+                    b.spawn(shotPos, 350.f);
                     return true;
                 }
             }
@@ -348,6 +348,13 @@ void Game::update(float dt) {
     }
     for (auto &e : formation_->enemies()) {
         if (!e.isActive()) continue;
+        for (auto &s : shields_) {
+            if (!s.isActive()) continue;
+            if (rectsIntersect(e.bounds(), s.bounds())) {
+                s.takeDamage(SHIELD_HP);
+                break;
+            }
+        }
         sf::FloatRect eb = e.bounds();
         if (eb.position.y + eb.size.y >= playerStart_.y - CELL_SIZE * 0.5f) {
             pausedForResult_ = true;

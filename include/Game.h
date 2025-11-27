@@ -63,7 +63,7 @@ private:
     sf::Clock clock_;
     float shootTimer_ = 0.f;
     const float SHOOT_COOLDOWN = 0.6f;
-    const int SHIELD_HP = 5;
+    const int SHIELD_HP = 15;
 
     std::mt19937 rng_;
     std::uniform_real_distribution<float> enemyShootDist_{0.8f, 1.8f};
