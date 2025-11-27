@@ -5,7 +5,6 @@
 #include "Bullet.h"
 #include "Shield.h"
 #include <iostream>
-#include <string>
 #include <algorithm>
 
 Game::Game(unsigned int windowWidth, unsigned int windowHeight)
@@ -23,10 +22,7 @@ Game::Game(unsigned int windowWidth, unsigned int windowHeight)
                                 MARGIN_.y + HUD_HEIGHT + (WINDOW_ROWS * CELL_SIZE) - CELL_SIZE * 1.5f);
 }
 
-Game::~Game() {
-    delete menu_;
-    delete pauseMenu_;
-}
+Game::~Game() = default;
 
 bool Game::loadAssets() {
     bool ok = true;
@@ -55,10 +51,10 @@ bool Game::init() {
 
     if (bgMusic_.openFromFile("assets/music/bg_music.ogg")) { bgMusic_.setLooping(true); bgMusic_.play(); musicOn_ = true; }
 
-    menu_ = new Menu(hasFont_ ? &font_ : nullptr, 80);
+    menu_ = std::make_unique<Menu>(hasFont_ ? &font_ : nullptr, 80);
     menu_->setOptions({ "NEW GAME", "EXIT" }, { static_cast<float>(VIRTUAL_WIDTH_) / 2.f, static_cast<float>(VIRTUAL_HEIGHT_) / 2.f }, 140.f);
 
-    pauseMenu_ = new Menu(hasFont_ ? &font_ : nullptr, 56);
+    pauseMenu_ = std::make_unique<Menu>(hasFont_ ? &font_ : nullptr, 56);
     pauseMenu_->setOptions({ "RESUME", "RESTART", "EXIT TO MENU" }, { static_cast<float>(VIRTUAL_WIDTH_) / 2.f, static_cast<float>(VIRTUAL_HEIGHT_) / 2.f }, 96.f);
 
     musicBtn_.setSize({48.f, 48.f});
@@ -98,7 +94,6 @@ bool Game::init() {
     player_ = std::make_unique<Player>(texPlayer_.getSize().x ? &texPlayer_ : nullptr, playerStart_);
     formation_ = createFormation();
 
-    // prepare explosion sounds pool
     explosionSounds_.clear();
     if (explosionLoaded_) {
         const size_t POOL_SIZE = 8;
@@ -130,6 +125,8 @@ void Game::updateGameViewForWindow(unsigned int winW, unsigned int winH) {
 }
 
 std::unique_ptr<Formation> Game::createFormation() {
+    float movement = 40.f + (wave_ - 1) * 6.f;
+    float descend = 18.f + (wave_ - 1) * 3.f;
     const float formationStartX = MARGIN_.x + 2.f * CELL_SIZE;
     const float formationStartY = MARGIN_.y + HUD_HEIGHT + 1.f * CELL_SIZE;
     const float spacingX = static_cast<float>(CELL_SIZE) * 1.65f;
@@ -141,11 +138,20 @@ std::unique_ptr<Formation> Game::createFormation() {
         ENEMY_COLS, ENEMY_ROWS,
         sf::Vector2f{ formationStartX, formationStartY },
         spacingX, spacingY,
-        40.f, 18.f
+        movement, descend
     );
 }
 
+void Game::spawnNextWave() {
+    wave_ += 1;
+    for (auto &b : bullets_) b.deactivate();
+    for (auto &b : enemyBullets_) b.deactivate();
+    formation_ = createFormation();
+    enemyShootTimer_ = enemyShootDist_(rng_) / (1.f + 0.08f * (wave_ - 1));
+}
+
 void Game::resetGameState() {
+    wave_ = 1;
     player_->setPosition(playerStart_);
     formation_ = createFormation();
     for (auto &b : bullets_) b.deactivate();
@@ -188,7 +194,7 @@ bool Game::trySpawnFromColumn(int col) {
             sf::Vector2f shotPos{ eb.position.x + eb.size.x / 2.f, eb.position.y + eb.size.y + 4.f };
             for (auto &b : enemyBullets_) {
                 if (!b.isActive()) {
-                    b.spawn(shotPos, 220.f);
+                    b.spawn(shotPos, 400.f);
                     return true;
                 }
             }
@@ -209,12 +215,10 @@ void Game::handleEvents() {
     while (auto evOpt = window_.pollEvent()) {
         const sf::Event& ev = *evOpt;
         if (ev.is<sf::Event::Closed>()) { window_.close(); break; }
-
         if (ev.is<sf::Event::Resized>()) {
             auto r = ev.getIf<sf::Event::Resized>();
             if (r) updateGameViewForWindow(static_cast<unsigned int>(r->size.x), static_cast<unsigned int>(r->size.y));
         }
-
         if (ev.is<sf::Event::KeyPressed>()) {
             auto k = ev.getIf<sf::Event::KeyPressed>();
             if (!k) continue;
@@ -223,7 +227,6 @@ void Game::handleEvents() {
                 if (k->code == sf::Keyboard::Key::Enter || k->code == sf::Keyboard::Key::Space) resetGameState();
             }
         }
-
         if (ev.is<sf::Event::MouseButtonPressed>()) {
             auto mb = ev.getIf<sf::Event::MouseButtonPressed>();
             if (!mb) continue;
@@ -237,7 +240,6 @@ void Game::handleEvents() {
                 }
             }
         }
-
         if (state_ == AppState::Menu) {
             sf::View prev = window_.getView();
             window_.setView(window_.getDefaultView());
@@ -245,7 +247,6 @@ void Game::handleEvents() {
             window_.setView(prev);
             continue;
         }
-
         if (paused_ && !pausedForResult_) {
             sf::View prev = window_.getView();
             window_.setView(window_.getDefaultView());
@@ -261,8 +262,6 @@ void Game::handleEvents() {
             window_.setView(prev);
             continue;
         }
-
-        // no further in-game event handling needed here (realtime input handled in update)
     }
 }
 
@@ -278,14 +277,10 @@ void Game::update(float dt) {
         }
         return;
     }
-
     if (paused_ || pausedForResult_) return;
-
     shootTimer_ -= dt; if (shootTimer_ < 0.f) shootTimer_ = 0.f;
-
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) player_->moveLeft(dt);
     else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) player_->moveRight(dt);
-
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space) && shootTimer_ <= 0.f) {
         sf::FloatRect pb = player_->bounds();
         sf::Vector2f bulletPos{ pb.position.x + pb.size.x / 2.f, pb.position.y - 6.f };
@@ -293,12 +288,10 @@ void Game::update(float dt) {
             if (!b.isActive()) { b.spawn(bulletPos, -480.f); if (laserSound_) laserSound_->play(); shootTimer_ = SHOOT_COOLDOWN; break; }
         }
     }
-
     player_->update(dt);
     for (auto &b : bullets_) b.update(dt);
     for (auto &b : enemyBullets_) b.update(dt);
     if (formation_) formation_->update(dt, MARGIN_.x, static_cast<float>(VIRTUAL_WIDTH_) - MARGIN_.x);
-
     enemyShootTimer_ -= dt;
     if (enemyShootTimer_ <= 0.f) {
         int tries = ENEMY_COLS; bool spawned = false;
@@ -306,9 +299,8 @@ void Game::update(float dt) {
             int col = enemyColDist_(rng_);
             spawned = trySpawnFromColumn(col);
         }
-        enemyShootTimer_ = enemyShootDist_(rng_);
+        enemyShootTimer_ = enemyShootDist_(rng_) / (1.f + 0.08f * (wave_ - 1));
     }
-
     for (auto &b : bullets_) {
         if (!b.isActive()) continue;
         bool hitShield = false;
@@ -322,21 +314,17 @@ void Game::update(float dt) {
             if (rectsIntersect(b.bounds(), e.bounds())) {
                 b.deactivate();
                 e.setActive(false);
-
-                // play explosion sound
                 if (explosionLoaded_ && !explosionSounds_.empty()) {
                     explosionSounds_[explosionSoundIndex_].setBuffer(explosionBuf_);
                     explosionSounds_[explosionSoundIndex_].play();
                     explosionSoundIndex_ = (explosionSoundIndex_ + 1) % explosionSounds_.size();
                 }
-
                 score_ += 10;
                 if (scoreText_) scoreText_->setString("Score: " + std::to_string(score_));
                 break;
             }
         }
     }
-
     for (auto &b : enemyBullets_) {
         if (!b.isActive()) continue;
         bool hitShield = false;
@@ -358,7 +346,6 @@ void Game::update(float dt) {
             }
         }
     }
-
     for (auto &e : formation_->enemies()) {
         if (!e.isActive()) continue;
         sf::FloatRect eb = e.bounds();
@@ -369,19 +356,14 @@ void Game::update(float dt) {
             break;
         }
     }
-
     bool anyAlive = false;
     for (auto &e : formation_->enemies()) { if (e.isActive()) { anyAlive = true; break; } }
     if (!anyAlive) {
-        pausedForResult_ = true;
-        if (overlayTitle_) { overlayTitle_->setString("YOU WIN"); overlayTitle_->setFillColor(sf::Color::Yellow); }
-        if (overlaySub_) overlaySub_->setString("Press ENTER to restart");
+        spawnNextWave();
     }
-
-    // music handling: pause/resume depending on menu visibility
     bool menuVisible = (state_ == AppState::Menu) || (state_ == AppState::Playing && (paused_ || pausedForResult_));
     if (bgMusic_.getStatus() == sf::SoundSource::Status::Playing) {
-        if (menuVisible && musicWasPlayingBeforeMenu_ == false) {
+        if (menuVisible && !musicWasPlayingBeforeMenu_) {
             musicWasPlayingBeforeMenu_ = true;
             bgMusic_.pause();
         }
@@ -395,7 +377,6 @@ void Game::update(float dt) {
 
 void Game::render() {
     window_.clear(sf::Color(18,18,28));
-
     if (state_ == AppState::Menu) {
         window_.setView(window_.getDefaultView());
         sf::RectangleShape fullBg(sf::Vector2f(static_cast<float>(window_.getSize().x), static_cast<float>(window_.getSize().y)));
@@ -405,18 +386,14 @@ void Game::render() {
         window_.display();
         return;
     }
-
-    // If a menu is visible (pause or end-game), draw only default-view overlay as in original main
     if (paused_ || pausedForResult_) {
         window_.setView(window_.getDefaultView());
         sf::RectangleShape fullBg(sf::Vector2f(static_cast<float>(window_.getSize().x), static_cast<float>(window_.getSize().y)));
         fullBg.setFillColor(sf::Color(0,0,0,200));
         window_.draw(fullBg);
-
         if (paused_ && !pausedForResult_) {
             if (pauseMenu_) pauseMenu_->draw(window_);
         }
-
         if (pausedForResult_) {
             if (hasFont_ && overlayTitle_ && overlaySub_) {
                 sf::Vector2u cur = window_.getSize();
@@ -425,71 +402,52 @@ void Game::render() {
                 float oy = rt.position.y + rt.size.y * 0.5f;
                 overlayTitle_->setOrigin(sf::Vector2f(ox, oy));
                 overlayTitle_->setPosition(sf::Vector2f(static_cast<float>(cur.x)/2.f, static_cast<float>(cur.y)/2.f - 24.f));
-
                 sf::FloatRect rs = overlaySub_->getLocalBounds();
                 float sox = rs.position.x + rs.size.x * 0.5f;
                 float soy = rs.position.y + rs.size.y * 0.5f;
                 overlaySub_->setOrigin(sf::Vector2f(sox, soy));
                 overlaySub_->setPosition(sf::Vector2f(static_cast<float>(cur.x)/2.f, static_cast<float>(cur.y)/2.f + 40.f));
-
                 window_.draw(*overlayTitle_);
                 window_.draw(*overlaySub_);
             }
         }
-
         window_.display();
         return;
     }
-
-    // Normal gameplay rendering
     window_.setView(gameView_);
     for (auto &s : shields_) s.draw(window_);
     if (formation_) formation_->draw(window_);
     for (auto &b : bullets_) if (b.isActive()) b.draw(window_);
     for (auto &b : enemyBullets_) if (b.isActive()) b.draw(window_);
     if (player_) player_->draw(window_);
-
     window_.setView(window_.getDefaultView());
     sf::Vector2u curSize = window_.getSize();
-
-    // Draw music button + icon
     window_.draw(musicBtn_);
     if (musicIcon_) window_.draw(*musicIcon_);
-
-    // Draw score and lives to the right of music button
     {
         sf::Vector2f btnPos = musicBtn_.getPosition();
         sf::Vector2f btnSize = musicBtn_.getSize();
         const float paddingX = 12.f;
-        const float spacing = 12.f;
         const float startX = btnPos.x + btnSize.x + paddingX;
         const float centerY = btnPos.y + btnSize.y * 0.5f;
-
         if (scoreText_) {
             sf::FloatRect tb = scoreText_->getLocalBounds();
             scoreText_->setOrigin(sf::Vector2f(0.f, tb.position.y + tb.size.y * 0.5f));
             scoreText_->setPosition(sf::Vector2f(startX, centerY));
             window_.draw(*scoreText_);
         }
-
-        float nextX = startX;
-        if (scoreText_) nextX += scoreText_->getGlobalBounds().size.x + spacing;
-        if (livesText_) {
-            sf::FloatRect tb2 = livesText_->getLocalBounds();
-            livesText_->setOrigin(sf::Vector2f(0.f, tb2.position.y + tb2.size.y * 0.5f));
-            livesText_->setPosition(sf::Vector2f(nextX, centerY));
-            window_.draw(*livesText_);
-        }
     }
-
-    // Pause overlay/menu if needed (draw above HUD)
+    if (livesText_) {
+        float lh = livesText_->getGlobalBounds().size.y;
+        livesText_->setPosition(sf::Vector2f(MARGIN_.x + 8.f, static_cast<float>(curSize.y) - MARGIN_.y - lh - 8.f));
+        window_.draw(*livesText_);
+    }
     if (paused_ && !pausedForResult_) {
         sf::RectangleShape overlay(sf::Vector2f(static_cast<float>(curSize.x), static_cast<float>(curSize.y)));
         overlay.setFillColor(sf::Color(0,0,0,160));
         window_.draw(overlay);
         if (pauseMenu_) pauseMenu_->draw(window_);
     }
-
     if (pausedForResult_) {
         sf::RectangleShape overlay(sf::Vector2f(static_cast<float>(curSize.x), static_cast<float>(curSize.y)));
         overlay.setFillColor(sf::Color(0,0,0,160));
@@ -509,7 +467,6 @@ void Game::render() {
             window_.draw(*overlaySub_);
         }
     }
-
     window_.display();
 }
 
